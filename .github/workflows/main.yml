@@ -1,0 +1,90 @@
+
+name: AflatoonMubdi V2 - Build & Collect
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build mode
+        required: true
+        type: choice
+        options:
+          - embedded-safe
+          - jailbreak
+        default: embedded-safe
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and Collect Dylib
+    runs-on: macos-14
+
+    env:
+      THEOS: ${{ github.workspace }}/theos
+
+    steps:
+      - name: Download Project
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          brew install ldid
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+
+      - name: Check Project
+        run: |
+          test -f Makefile
+          test -d .github/workflows
+          echo "Project files verified"
+
+      - name: Select Build Mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "BUILD_MODE=${{ inputs.build_mode }}" >> "$GITHUB_ENV"
+          else
+            echo "BUILD_MODE=embedded-safe" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Dylib
+        run: |
+          make clean
+          make -j2 FINALPACKAGE=1 AP_BUILD_MODE="$BUILD_MODE"
+
+      - name: Collect Build Files
+        run: |
+          mkdir -p dist
+          find . -type f -name "*.dylib" \
+            -not -path "./theos/*" \
+            -exec cp {} dist/ \;
+
+          if [ -f dist/AflatoonMubdi.dylib ]; then
+            echo "AflatoonMubdi.dylib found"
+          else
+            echo "ERROR: Dylib was not generated"
+            exit 1
+          fi
+
+          cp README.md dist/ 2>/dev/null || true
+          cp README-V2.md dist/ 2>/dev/null || true
+
+          cd dist
+          zip -r ../AflatoonMubdi-V2-Build.zip .
+
+      - name: Upload Dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: AflatoonMubdi-V2-Dylib
+          path: dist/AflatoonMubdi.dylib
+          if-no-files-found: error
+
+      - name: Upload Complete Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AflatoonMubdi-V2-Complete
+          path: AflatoonMubdi-V2-Build.zip
+          if-no-files-found: error
